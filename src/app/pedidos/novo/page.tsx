@@ -1,11 +1,11 @@
 'use client'
 
-import { Suspense } from 'react'
-import { useState } from 'react'
+import { Suspense, useState, useRef, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
-import { ArrowLeft, MapPin, Camera, ChevronRight, Zap, Calendar, Package } from 'lucide-react'
+import { buscarEnderecos, calcularRota, formatarDuracao, type Sugestao, type ResultadoRota } from '@/lib/maps'
+import { ArrowLeft, MapPin, Loader2, Zap, Clock, Navigation } from 'lucide-react'
 
 const TIPOS = [
   { value: 'frete', label: 'Frete de Objetos', emoji: '📦', desc: 'Móveis, caixas, eletros' },
@@ -16,13 +16,13 @@ const TIPOS = [
 const VEICULOS = [
   { value: 'carro', label: 'Carro', desc: 'Até 300kg', emoji: '🚗' },
   { value: 'van', label: 'Van / Kombi', desc: 'Até 800kg', emoji: '🚐' },
-  { value: 'caminhao_pequeno', label: 'Caminhão Pequeno', desc: 'Até 3 toneladas', emoji: '🚛' },
-  { value: 'caminhao_grande', label: 'Caminhão Grande', desc: 'Acima de 3 toneladas', emoji: '🚚' },
+  { value: 'caminhao_pequeno', label: 'Caminhão Pequeno', desc: 'Até 3t', emoji: '🚛' },
+  { value: 'caminhao_grande', label: 'Caminhão Grande', desc: '+3t', emoji: '🚚' },
 ]
 
-function calcularPreco(distanciaKm: number, tipoVeiculo: string, urgente: boolean): number {
+function calcularPreco(distanciaKm: number, veiculo: string, urgente: boolean): number {
   let base = 0
-  switch (tipoVeiculo) {
+  switch (veiculo) {
     case 'carro': base = distanciaKm * 2.5 + 15; break
     case 'van': base = distanciaKm * 3.5 + 25; break
     case 'caminhao_pequeno': base = distanciaKm * 5 + 50; break
@@ -32,55 +32,185 @@ function calcularPreco(distanciaKm: number, tipoVeiculo: string, urgente: boolea
   return Math.round(base * (urgente ? 1.3 : 1))
 }
 
+// ─── Componente de Input com Autocomplete ────────────────────────────────────
+function AddressInput({
+  label, placeholder, value, onChange, onSelect, color
+}: {
+  label: string
+  placeholder: string
+  value: string
+  onChange: (v: string) => void
+  onSelect: (s: Sugestao) => void
+  color: string
+}) {
+  const [sugestoes, setSugestoes] = useState<Sugestao[]>([])
+  const [buscando, setBuscando] = useState(false)
+  const [aberto, setAberto] = useState(false)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  // Prevent close-on-blur when clicking a suggestion
+  const selectingRef = useRef(false)
+
+  const buscar = useCallback((q: string) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    if (q.length < 3) { setSugestoes([]); setBuscando(false); return }
+
+    setBuscando(true)
+    debounceRef.current = setTimeout(async () => {
+      const results = await buscarEnderecos(q)
+      setSugestoes(results)
+      setAberto(results.length > 0)
+      setBuscando(false)
+    }, 500)
+  }, [])
+
+  return (
+    <div ref={containerRef} style={{ position: 'relative', marginBottom: '1rem' }}>
+      <label className="label">{label}</label>
+      <div style={{ position: 'relative' }}>
+        <div style={{
+          position: 'absolute', left: '0.85rem', top: '50%',
+          transform: 'translateY(-50%)', zIndex: 1
+        }}>
+          {buscando
+            ? <Loader2 size={16} color={color} style={{ animation: 'spin 1s linear infinite' }} />
+            : <MapPin size={16} color={color} />
+          }
+        </div>
+        <input
+          type="text"
+          className="input"
+          placeholder={placeholder}
+          value={value}
+          onChange={e => { onChange(e.target.value); buscar(e.target.value) }}
+          onFocus={() => sugestoes.length > 0 && setAberto(true)}
+          onBlur={() => { if (!selectingRef.current) setAberto(false) }}
+          style={{ paddingLeft: '2.5rem' }}
+          autoComplete="off"
+        />
+      </div>
+
+      {/* Dropdown de sugestões */}
+      {aberto && sugestoes.length > 0 && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
+          background: 'white', borderRadius: 12, marginTop: 4,
+          boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+          border: '1px solid var(--borda)', overflow: 'hidden'
+        }}>
+          {sugestoes.map((s, i) => (
+            <button
+              key={i}
+              type="button"
+              onMouseDown={() => { selectingRef.current = true }}
+              onClick={() => {
+                onSelect(s)
+                onChange(s.nome)
+                setAberto(false)
+                setSugestoes([])
+                selectingRef.current = false
+              }}
+              style={{
+                width: '100%', padding: '0.75rem 1rem', textAlign: 'left',
+                background: 'none', border: 'none', cursor: 'pointer',
+                borderBottom: i < sugestoes.length - 1 ? '1px solid var(--borda)' : 'none',
+                transition: 'background 0.15s'
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = '#FFF5EE')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+            >
+              <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'flex-start' }}>
+                <MapPin size={14} color={color} style={{ marginTop: 2, flexShrink: 0 }} />
+                <div>
+                  <p style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--texto)' }}>{s.nome}</p>
+                  <p style={{ fontSize: '0.72rem', color: 'var(--texto-muted)', lineHeight: 1.3, marginTop: 1 }}>
+                    {s.enderecoCompleto.split(',').slice(0, 4).join(',')}
+                  </p>
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Formulário Principal ─────────────────────────────────────────────────────
 function NovoPedidoForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const tipoParam = searchParams.get('tipo') as string | null
 
   const [step, setStep] = useState(1)
-  const [tipo, setTipo] = useState(tipoParam || '')
-  const [origem, setOrigem] = useState('')
-  const [destino, setDestino] = useState('')
-  const [descricao, setDescricao] = useState('')
+  const [tipo, setTipo] = useState(searchParams.get('tipo') || '')
   const [veiculo, setVeiculo] = useState('')
   const [urgente, setUrgente] = useState(false)
   const [agendado, setAgendado] = useState(false)
   const [agendadoPara, setAgendadoPara] = useState('')
-  const [distancia, setDistancia] = useState(5) // km estimado
+  const [descricao, setDescricao] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-  const precoEstimado = veiculo ? calcularPreco(distancia, veiculo, urgente) : 0
+  // Endereços
+  const [origemTexto, setOrigemTexto] = useState('')
+  const [destinoTexto, setDestinoTexto] = useState('')
+  const [origemCoord, setOrigemCoord] = useState<{ lat: number; lng: number } | null>(null)
+  const [destinoCoord, setDestinoCoord] = useState<{ lat: number; lng: number } | null>(null)
+  // Use refs to always have latest coord values in callbacks
+  const origemRef = useRef<{ lat: number; lng: number } | null>(null)
+  const destinoRef = useRef<{ lat: number; lng: number } | null>(null)
+
+  // Rota
+  const [rota, setRota] = useState<ResultadoRota | null>(null)
+  const [calculando, setCalculando] = useState(false)
+
+  const triggerRota = useCallback((o: { lat: number; lng: number } | null, d: { lat: number; lng: number } | null) => {
+    if (!o || !d) { setRota(null); return }
+    setCalculando(true)
+    calcularRota(o.lat, o.lng, d.lat, d.lng)
+      .then(r => { setRota(r); setCalculando(false) })
+  }, [])
+
+  // Instant Haversine estimate for immediate feedback
+  function haversineFast(o: { lat: number; lng: number }, d: { lat: number; lng: number }): number {
+    const R = 6371, toRad = (v: number) => v * Math.PI / 180
+    const dLat = toRad(d.lat - o.lat), dLng = toRad(d.lng - o.lng)
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(o.lat)) * Math.cos(toRad(d.lat)) * Math.sin(dLng / 2) ** 2
+    return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) * 1.35 * 10) / 10
+  }
+
+  const distanciaAtual = rota?.distancia_km ?? (origemRef.current && destinoRef.current ? haversineFast(origemRef.current, destinoRef.current) : 0)
+  const preco = distanciaAtual > 0 && veiculo ? calcularPreco(distanciaAtual, veiculo, urgente) : 0
 
   const handleSubmit = async () => {
+    if (!origemCoord || !destinoCoord) {
+      setError('Selecione endereços válidos a partir das sugestões.')
+      return
+    }
+    const rotaFinal = rota ?? { distancia_km: haversineFast(origemCoord, destinoCoord), duracao_min: 0, via: 'haversine' as const }
     setLoading(true)
     setError('')
 
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { router.push('/login'); return }
 
-    const { data, error } = await supabase.from('pedidos').insert({
+    const { data, error: dbError } = await supabase.from('pedidos').insert({
       cliente_id: user.id,
       tipo: tipo as 'frete' | 'mudanca' | 'entrega',
-      origem,
-      destino,
-      origem_lat: -19.5339,  // Colatina center lat (placeholder)
-      origem_lng: -40.6274,  // Colatina center lng (placeholder)
-      destino_lat: -19.5339,
-      destino_lng: -40.6274,
+      origem: origemTexto,
+      destino: destinoTexto,
+      origem_lat: origemCoord.lat,
+      origem_lng: origemCoord.lng,
+      destino_lat: destinoCoord.lat,
+      destino_lng: destinoCoord.lng,
       descricao,
-      preco_estimado: precoEstimado,
+      preco_estimado: preco || calcularPreco(rotaFinal.distancia_km, veiculo, urgente),
       urgente,
-      distancia_km: distancia,
+      distancia_km: rotaFinal.distancia_km,
       agendado_para: agendado && agendadoPara ? agendadoPara : null,
     }).select().single()
 
-    if (error) {
-      setError('Erro ao criar pedido. Verifique seus dados e tente novamente.')
-      setLoading(false)
-      return
-    }
-
+    if (dbError) { setError('Erro ao criar pedido. Tente novamente.'); setLoading(false); return }
     router.push(`/pedidos/${data.id}?novo=true`)
   }
 
@@ -105,195 +235,200 @@ function NovoPedidoForm() {
                 background: step >= s ? 'var(--laranja)' : 'var(--borda)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: '0.78rem', fontWeight: 700,
-                color: step >= s ? 'white' : 'var(--texto-muted)',
-                transition: 'all 0.2s', flexShrink: 0
+                color: step >= s ? 'white' : 'var(--texto-muted)', flexShrink: 0
               }}>
                 {step > s ? '✓' : s}
               </div>
-              {s < 3 && (
-                <div style={{ flex: 1, height: 2, background: step > s ? 'var(--laranja)' : 'var(--borda)', borderRadius: 2 }} />
-              )}
+              {s < 3 && <div style={{ flex: 1, height: 2, background: step > s ? 'var(--laranja)' : 'var(--borda)', borderRadius: 2 }} />}
             </div>
           ))}
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.5rem' }}>
-          {['Tipo', 'Detalhes', 'Confirmar'].map((l, i) => (
-            <span key={i} style={{ fontSize: '0.72rem', color: step >= i + 1 ? 'var(--laranja)' : 'var(--texto-muted)', fontWeight: 600 }}>
+          {['Tipo', 'Rota & Detalhes', 'Confirmar'].map((l, i) => (
+            <span key={i} style={{ fontSize: '0.7rem', color: step >= i + 1 ? 'var(--laranja)' : 'var(--texto-muted)', fontWeight: step === i + 1 ? 700 : 400 }}>
               {l}
             </span>
           ))}
         </div>
       </div>
 
-      <div style={{ padding: '1.5rem', maxWidth: 540, margin: '0 auto' }}>
+      <div style={{ padding: '1.25rem 1.5rem', maxWidth: 540, margin: '0 auto' }}>
 
-        {/* STEP 1: Tipo */}
+        {/* STEP 1 — Tipo e veículo */}
         {step === 1 && (
           <div className="animate-fade-up">
-            <h2 style={{ fontWeight: 700, fontSize: '1.15rem', marginBottom: '0.5rem' }}>
-              Qual tipo de serviço você precisa?
-            </h2>
-            <p style={{ color: 'var(--texto-muted)', fontSize: '0.875rem', marginBottom: '1.5rem' }}>
-              Selecione uma opção para continuar
-            </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <h2 style={{ fontWeight: 700, fontSize: '1.1rem', marginBottom: '1.25rem' }}>Que tipo de serviço você precisa?</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', marginBottom: '1.5rem' }}>
               {TIPOS.map(t => (
-                <button key={t.value} onClick={() => { setTipo(t.value); setStep(2) }}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: '1rem',
-                    padding: '1.1rem 1.25rem', borderRadius: 14,
-                    background: 'white', border: `2px solid ${tipo === t.value ? 'var(--laranja)' : 'var(--borda)'}`,
-                    cursor: 'pointer', transition: 'all 0.2s', textAlign: 'left', width: '100%'
-                  }}>
-                  <span style={{ fontSize: '2rem' }}>{t.emoji}</span>
-                  <div style={{ flex: 1 }}>
-                    <p style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--texto)' }}>{t.label}</p>
-                    <p style={{ color: 'var(--texto-muted)', fontSize: '0.8rem' }}>{t.desc}</p>
+                <button key={t.value} onClick={() => setTipo(t.value)} style={{
+                  padding: '1rem', borderRadius: 14, textAlign: 'left', cursor: 'pointer',
+                  border: tipo === t.value ? '2px solid var(--laranja)' : '2px solid var(--borda)',
+                  background: tipo === t.value ? 'rgba(255,107,0,0.06)' : 'white',
+                  display: 'flex', gap: '1rem', alignItems: 'center', transition: 'all 0.2s'
+                }}>
+                  <span style={{ fontSize: '1.75rem' }}>{t.emoji}</span>
+                  <div>
+                    <p style={{ fontWeight: 700 }}>{t.label}</p>
+                    <p style={{ color: 'var(--texto-muted)', fontSize: '0.82rem' }}>{t.desc}</p>
                   </div>
-                  <ChevronRight size={18} color="var(--texto-muted)" />
                 </button>
               ))}
             </div>
+
+            <h2 style={{ fontWeight: 700, fontSize: '1rem', marginBottom: '1rem' }}>Tamanho do veículo</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem', marginBottom: '1.5rem' }}>
+              {VEICULOS.map(v => (
+                <button key={v.value} onClick={() => setVeiculo(v.value)} style={{
+                  padding: '0.85rem', borderRadius: 12, cursor: 'pointer', textAlign: 'center',
+                  border: veiculo === v.value ? '2px solid var(--laranja)' : '2px solid var(--borda)',
+                  background: veiculo === v.value ? 'rgba(255,107,0,0.06)' : 'white', transition: 'all 0.2s'
+                }}>
+                  <div style={{ fontSize: '1.5rem' }}>{v.emoji}</div>
+                  <p style={{ fontWeight: 700, fontSize: '0.875rem' }}>{v.label}</p>
+                  <p style={{ color: 'var(--texto-muted)', fontSize: '0.72rem' }}>{v.desc}</p>
+                </button>
+              ))}
+            </div>
+
+            <button onClick={() => setStep(2)} disabled={!tipo || !veiculo} className="btn-primary" style={{ width: '100%' }}>
+              Continuar →
+            </button>
           </div>
         )}
 
-        {/* STEP 2: Details */}
+        {/* STEP 2 — Endereços com autocomplete + rota real */}
         {step === 2 && (
           <div className="animate-fade-up">
-            <h2 style={{ fontWeight: 700, fontSize: '1.15rem', marginBottom: '1.5rem' }}>
-              Onde e o quê?
-            </h2>
+            <h2 style={{ fontWeight: 700, fontSize: '1.1rem', marginBottom: '1.25rem' }}>De onde para onde?</h2>
 
-            {/* Origem / Destino */}
-            <div style={{ background: 'white', borderRadius: 14, padding: '1rem', marginBottom: '1rem', border: '1px solid var(--borda)' }}>
-              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', paddingBottom: '0.75rem', borderBottom: '1px solid var(--borda)' }}>
-                <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#10B981', flexShrink: 0 }} />
-                <div style={{ flex: 1 }}>
-                  <label className="label" style={{ marginBottom: '0.2rem' }}>Origem</label>
-                  <input type="text" className="input" placeholder="Ex: Av. Getúlio Vargas, 123 - Centro, Colatina"
-                    value={origem} onChange={e => setOrigem(e.target.value)}
-                    style={{ border: 'none', padding: '0', fontSize: '0.9rem' }}
-                  />
+            <AddressInput
+              label="📍 Endereço de origem"
+              placeholder="Ex: Av. Getúlio Vargas, 500"
+              value={origemTexto}
+              onChange={v => { setOrigemTexto(v); setOrigemCoord(null); origemRef.current = null; setRota(null) }}
+              onSelect={s => {
+                const c = { lat: s.lat, lng: s.lng }
+                origemRef.current = c
+                setOrigemCoord(c)
+                setOrigemTexto(s.nome)
+                triggerRota(c, destinoRef.current)
+              }}
+              color="#10B981"
+            />
+
+            <AddressInput
+              label="🏁 Endereço de destino"
+              placeholder="Ex: Rua Prefeito Claudionor, 100"
+              value={destinoTexto}
+              onChange={v => { setDestinoTexto(v); setDestinoCoord(null); destinoRef.current = null; setRota(null) }}
+              onSelect={s => {
+                const c = { lat: s.lat, lng: s.lng }
+                destinoRef.current = c
+                setDestinoCoord(c)
+                setDestinoTexto(s.nome)
+                triggerRota(origemRef.current, c)
+              }}
+              color="#FF6B00"
+            />
+
+            {(distanciaAtual > 0 || calculando) && (
+              <div className="card" style={{
+                background: calculando ? 'white' : 'linear-gradient(135deg, rgba(255,107,0,0.08), rgba(255,140,56,0.05))',
+                border: `2px solid ${calculando ? 'var(--borda)' : 'rgba(255,107,0,0.2)'}`, marginBottom: '1rem'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <p style={{ fontSize: '0.72rem', color: 'var(--texto-muted)', marginBottom: '0.2rem' }}>
+                      {calculando ? '⏳ Calculando rota real...' : rota?.via === 'osrm' ? '🛣️ Rota real (OpenStreetMap)' : '📐 Estimativa de distância'}
+                    </p>
+                    <div style={{ display: 'flex', gap: '1.25rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                        <Navigation size={14} color="var(--laranja)" />
+                        <span style={{ fontWeight: 800, fontSize: '1.1rem', color: 'var(--laranja)' }}>
+                          {distanciaAtual} km
+                        </span>
+                      </div>
+                      {(rota?.duracao_min ?? 0) > 0 && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                          <Clock size={14} color="var(--texto-muted)" />
+                          <span style={{ fontWeight: 600, color: 'var(--texto-muted)', fontSize: '0.9rem' }}>
+                            {formatarDuracao(rota!.duracao_min)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {veiculo && (
+                    <div style={{ textAlign: 'right' }}>
+                      <p style={{ fontSize: '0.7rem', color: 'var(--texto-muted)' }}>Estimativa</p>
+                      <p style={{ fontWeight: 900, fontSize: '1.3rem', color: 'var(--laranja)' }}>
+                        R$ {calcularPreco(rota.distancia_km, veiculo, urgente).toFixed(2)}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', paddingTop: '0.75rem' }}>
-                <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#FF6B00', flexShrink: 0 }} />
-                <div style={{ flex: 1 }}>
-                  <label className="label" style={{ marginBottom: '0.2rem' }}>Destino</label>
-                  <input type="text" className="input" placeholder="Ex: Rua das Flores, 456 - São Silvano, Colatina"
-                    value={destino} onChange={e => setDestino(e.target.value)}
-                    style={{ border: 'none', padding: '0', fontSize: '0.9rem' }}
-                  />
-                </div>
-              </div>
-            </div>
+            )}
 
-            {/* Distância manual */}
+            {/* Urgente */}
             <div className="card" style={{ marginBottom: '1rem' }}>
-              <label className="label">Distância estimada (km)</label>
-              <p style={{ color: 'var(--texto-muted)', fontSize: '0.8rem', marginBottom: '0.75rem' }}>
-                Não sabe? Use o Google Maps para estimar.
-              </p>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                <input type="range" min={1} max={100} value={distancia}
-                  onChange={e => setDistancia(Number(e.target.value))}
-                  style={{ flex: 1, accentColor: '#FF6B00' }}
-                />
-                <span style={{ fontWeight: 700, minWidth: 50, color: 'var(--laranja)' }}>{distancia} km</span>
-              </div>
-            </div>
-
-            {/* Veículo */}
-            <div style={{ marginBottom: '1rem' }}>
-              <label className="label">Tipo de veículo necessário</label>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
-                {VEICULOS.map(v => (
-                  <button key={v.value} onClick={() => setVeiculo(v.value)}
-                    style={{
-                      padding: '0.75rem', borderRadius: 10, border: `2px solid ${veiculo === v.value ? 'var(--laranja)' : 'var(--borda)'}`,
-                      background: veiculo === v.value ? 'rgba(255,107,0,0.08)' : 'white',
-                      cursor: 'pointer', textAlign: 'center'
-                    }}>
-                    <div style={{ fontSize: '1.5rem' }}>{v.emoji}</div>
-                    <p style={{ fontWeight: 700, fontSize: '0.8rem', color: 'var(--texto)' }}>{v.label}</p>
-                    <p style={{ fontSize: '0.7rem', color: 'var(--texto-muted)' }}>{v.desc}</p>
-                  </button>
-                ))}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+                  <Zap size={18} color="#FF6B00" />
+                  <div>
+                    <p style={{ fontWeight: 700, fontSize: '0.9rem' }}>Urgente (+30%)</p>
+                    <p style={{ color: 'var(--texto-muted)', fontSize: '0.78rem' }}>Prioridade máxima de atendimento</p>
+                  </div>
+                </div>
+                <button onClick={() => setUrgente(!urgente)} style={{
+                  width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
+                  background: urgente ? 'var(--laranja)' : '#CBD5E1', transition: 'all 0.25s', position: 'relative'
+                }}>
+                  <div style={{
+                    position: 'absolute', width: 18, height: 18, borderRadius: '50%', background: 'white',
+                    top: 3, left: urgente ? 23 : 3, transition: 'left 0.25s',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.3)'
+                  }} />
+                </button>
               </div>
             </div>
 
             {/* Descrição */}
-            <div style={{ marginBottom: '1rem' }}>
-              <label className="label">Descreva a carga</label>
-              <textarea className="input" placeholder="Ex: 2 sofás grandes, 1 geladeira, 10 caixas de roupa..."
-                value={descricao} onChange={e => setDescricao(e.target.value)} rows={3}
-                style={{ resize: 'vertical', fontFamily: 'inherit' }}
+            <div style={{ marginBottom: '1.25rem' }}>
+              <label className="label">Descreva o que será transportado</label>
+              <textarea
+                className="input"
+                placeholder="Ex: Sofá 3 lugares, geladeira e 10 caixas de papelão..."
+                value={descricao}
+                onChange={e => setDescricao(e.target.value)}
+                rows={3}
+                required
+                style={{ fontFamily: 'inherit', resize: 'none' }}
               />
             </div>
 
-            {/* Urgente / Agendado */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1.5rem' }}>
-              <button onClick={() => setUrgente(!urgente)}
-                style={{
-                  padding: '0.85rem', borderRadius: 10, border: `2px solid ${urgente ? '#FF6B00' : 'var(--borda)'}`,
-                  background: urgente ? 'rgba(255,107,0,0.1)' : 'white', cursor: 'pointer'
-                }}>
-                <Zap size={18} color={urgente ? '#FF6B00' : 'var(--texto-muted)'} />
-                <p style={{ fontWeight: 700, fontSize: '0.8rem', marginTop: '0.3rem', color: urgente ? 'var(--laranja)' : 'var(--texto)' }}>
-                  Urgente +30%
-                </p>
-              </button>
-              <button onClick={() => setAgendado(!agendado)}
-                style={{
-                  padding: '0.85rem', borderRadius: 10, border: `2px solid ${agendado ? '#0D1B40' : 'var(--borda)'}`,
-                  background: agendado ? 'rgba(13,27,64,0.08)' : 'white', cursor: 'pointer'
-                }}>
-                <Calendar size={18} color={agendado ? '#0D1B40' : 'var(--texto-muted)'} />
-                <p style={{ fontWeight: 700, fontSize: '0.8rem', marginTop: '0.3rem', color: agendado ? '#0D1B40' : 'var(--texto)' }}>
-                  Agendar
-                </p>
-              </button>
-            </div>
-
-            {agendado && (
-              <div style={{ marginBottom: '1rem' }}>
-                <label className="label">Data e hora do frete</label>
-                <input type="datetime-local" className="input" value={agendadoPara}
-                  onChange={e => setAgendadoPara(e.target.value)} />
-              </div>
-            )}
-
             <div style={{ display: 'flex', gap: '0.75rem' }}>
-              <button onClick={() => setStep(1)} className="btn-outline" style={{ flex: 1 }}>Voltar</button>
-              <button onClick={() => {
-                if (!origem || !destino || !veiculo || !descricao) {
-                  setError('Preencha todos os campos obrigatórios.')
-                  return
-                }
-                setError('')
-                setStep(3)
-              }} className="btn-primary" style={{ flex: 2 }}>
-                Continuar <ChevronRight size={16} />
+              <button onClick={() => setStep(1)} className="btn-outline" style={{ flex: 1 }}>← Voltar</button>
+              <button
+                onClick={() => setStep(3)}
+                disabled={!origemTexto || !destinoTexto || !descricao || calculando}
+                className="btn-primary"
+                style={{ flex: 2 }}
+              >
+                {calculando ? 'Calculando rota...' : 'Revisar pedido →'}
               </button>
             </div>
-            {error && <p style={{ color: 'var(--erro)', fontSize: '0.82rem', marginTop: '0.5rem' }}>{error}</p>}
           </div>
         )}
 
-        {/* STEP 3: Confirm */}
+        {/* STEP 3 — Confirmação */}
         {step === 3 && (
           <div className="animate-fade-up">
-            <h2 style={{ fontWeight: 700, fontSize: '1.15rem', marginBottom: '1.5rem' }}>
-              Confirme seu pedido
-            </h2>
+            <h2 style={{ fontWeight: 700, fontSize: '1.1rem', marginBottom: '1.25rem' }}>Confirme seu pedido</h2>
 
             <div className="card" style={{ marginBottom: '1rem' }}>
               <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
-                <div style={{
-                  width: 48, height: 48, borderRadius: 12,
-                  background: 'rgba(255,107,0,0.1)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem'
-                }}>
+                <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(255,107,0,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem' }}>
                   {TIPOS.find(t => t.value === tipo)?.emoji}
                 </div>
                 <div>
@@ -304,42 +439,55 @@ function NovoPedidoForm() {
                 </div>
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1rem' }}>
                 <div style={{ display: 'flex', gap: '0.75rem' }}>
                   <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#10B981', marginTop: 4, flexShrink: 0 }} />
                   <div>
-                    <p style={{ fontSize: '0.78rem', color: 'var(--texto-muted)' }}>Origem</p>
-                    <p style={{ fontWeight: 600, fontSize: '0.9rem' }}>{origem}</p>
+                    <p style={{ fontSize: '0.72rem', color: 'var(--texto-muted)' }}>ORIGEM</p>
+                    <p style={{ fontWeight: 600 }}>{origemTexto}</p>
                   </div>
                 </div>
                 <div style={{ width: 2, height: 16, background: 'var(--borda)', marginLeft: 4 }} />
                 <div style={{ display: 'flex', gap: '0.75rem' }}>
                   <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#FF6B00', marginTop: 4, flexShrink: 0 }} />
                   <div>
-                    <p style={{ fontSize: '0.78rem', color: 'var(--texto-muted)' }}>Destino</p>
-                    <p style={{ fontWeight: 600, fontSize: '0.9rem' }}>{destino}</p>
+                    <p style={{ fontSize: '0.72rem', color: 'var(--texto-muted)' }}>DESTINO</p>
+                    <p style={{ fontWeight: 600 }}>{destinoTexto}</p>
                   </div>
                 </div>
               </div>
 
-              <div style={{ borderTop: '1px solid var(--borda)', marginTop: '1rem', paddingTop: '1rem' }}>
-                <p style={{ fontSize: '0.82rem', color: 'var(--texto-muted)', marginBottom: '0.4rem' }}>Descrição da carga:</p>
-                <p style={{ fontSize: '0.9rem' }}>{descricao}</p>
-              </div>
+              {rota && (
+                <div style={{ display: 'flex', gap: '1.5rem', padding: '0.75rem 0', borderTop: '1px solid var(--borda)', borderBottom: '1px solid var(--borda)', marginBottom: '1rem' }}>
+                  <div>
+                    <p style={{ fontSize: '0.7rem', color: 'var(--texto-muted)' }}>DISTÂNCIA</p>
+                    <p style={{ fontWeight: 700 }}>{rota.distancia_km} km</p>
+                  </div>
+                  <div>
+                    <p style={{ fontSize: '0.7rem', color: 'var(--texto-muted)' }}>TEMPO EST.</p>
+                    <p style={{ fontWeight: 700 }}>{formatarDuracao(rota.duracao_min)}</p>
+                  </div>
+                  {urgente && <span className="badge badge-urgente">⚡ Urgente</span>}
+                </div>
+              )}
+
+              <p style={{ fontSize: '0.82rem', color: 'var(--texto-muted)', lineHeight: 1.5 }}>{descricao}</p>
             </div>
 
-            {/* Price card */}
+            {/* Preço */}
             <div style={{
               background: 'linear-gradient(135deg, #FF6B00, #FF8C38)',
-              borderRadius: 16, padding: '1.5rem', marginBottom: '1.5rem', textAlign: 'center'
+              borderRadius: 16, padding: '1.5rem', marginBottom: '1.25rem', textAlign: 'center'
             }}>
-              <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: '0.85rem' }}>Estimativa de Preço</p>
-              <p style={{ color: 'white', fontSize: '2.5rem', fontWeight: 900 }}>R$ {precoEstimado.toFixed(2)}</p>
-              <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.8rem' }}>
-                {distancia}km • {urgente ? '⚡ Urgente' : 'Normal'}
+              <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: '0.85rem' }}>Estimativa de Preço</p>
+              <p style={{ color: 'white', fontSize: '2.8rem', fontWeight: 900, lineHeight: 1.1 }}>
+                R$ {preco.toFixed(2)}
               </p>
-              <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.75rem', marginTop: '0.3rem' }}>
-                Preço final negociado com o motorista via PIX/dinheiro
+              <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.78rem', marginTop: '0.3rem' }}>
+                {rota?.distancia_km} km • {rota && formatarDuracao(rota.duracao_min)} estimado
+              </p>
+              <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.72rem', marginTop: '0.2rem' }}>
+                Preço final negociado com o motorista
               </p>
             </div>
 
@@ -350,7 +498,7 @@ function NovoPedidoForm() {
             )}
 
             <div style={{ display: 'flex', gap: '0.75rem' }}>
-              <button onClick={() => setStep(2)} className="btn-outline" style={{ flex: 1 }}>Voltar</button>
+              <button onClick={() => setStep(2)} className="btn-outline" style={{ flex: 1 }}>← Voltar</button>
               <button onClick={handleSubmit} className="btn-primary" style={{ flex: 2 }} disabled={loading}>
                 {loading ? <div className="spinner" style={{ width: 20, height: 20 }} /> : '🚛 Publicar Pedido'}
               </button>
@@ -362,6 +510,7 @@ function NovoPedidoForm() {
   )
 }
 
+// ─── Export com Suspense ──────────────────────────────────────────────────────
 export default function NovoPedidoPage() {
   return (
     <Suspense fallback={
