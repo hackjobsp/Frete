@@ -1,0 +1,27 @@
+{
+  "name": "FreteJá Colatina",
+  "short_name": "FreteJá",
+  "description": "Frete rápido, preço justo, do jeito que Colatina precisa",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0D1B40",
+  "theme_color": "#FF6B00",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["utilities", "logistics", "transportation"],
+  "lang": "pt-BR",
+  "dir": "ltr"
+}

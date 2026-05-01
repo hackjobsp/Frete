@@ -1,0 +1,350 @@
+@import "tailwindcss";
+
+:root {
+  --laranja: #FF6B00;
+  --laranja-light: #FF8C38;
+  --laranja-dark: #D95500;
+  --azul: #0D1B40;
+  --azul-medio: #162552;
+  --azul-light: #1E3370;
+  --cinza-bg: #F5F6FA;
+  --cinza-card: #FFFFFF;
+  --texto: #1A1A2E;
+  --texto-muted: #6B7280;
+  --borda: #E5E7EB;
+  --sucesso: #10B981;
+  --alerta: #F59E0B;
+  --erro: #EF4444;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--cinza-bg);
+  color: var(--texto);
+  font-family: 'Inter', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* =================== GRADIENTES =================== */
+.gradient-hero {
+  background: linear-gradient(135deg, var(--azul) 0%, var(--azul-medio) 40%, #1a2d6b 70%, #0d3060 100%);
+}
+
+.gradient-orange {
+  background: linear-gradient(135deg, var(--laranja) 0%, var(--laranja-light) 100%);
+}
+
+.gradient-card {
+  background: linear-gradient(145deg, #ffffff 0%, #f8f9ff 100%);
+}
+
+/* =================== BOTÕES =================== */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.75rem;
+  background: linear-gradient(135deg, var(--laranja) 0%, var(--laranja-light) 100%);
+  color: white;
+  font-weight: 700;
+  font-size: 0.95rem;
+  border-radius: 12px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 15px rgba(255, 107, 0, 0.35);
+  text-decoration: none;
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(255, 107, 0, 0.45);
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.75rem;
+  background: transparent;
+  color: white;
+  font-weight: 600;
+  font-size: 0.95rem;
+  border-radius: 12px;
+  border: 2px solid rgba(255,255,255,0.4);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-decoration: none;
+}
+
+.btn-secondary:hover {
+  background: rgba(255,255,255,0.1);
+  border-color: rgba(255,255,255,0.7);
+}
+
+.btn-outline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1.5rem;
+  background: transparent;
+  color: var(--laranja);
+  font-weight: 600;
+  font-size: 0.9rem;
+  border-radius: 10px;
+  border: 2px solid var(--laranja);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-decoration: none;
+}
+
+.btn-outline:hover {
+  background: var(--laranja);
+  color: white;
+}
+
+/* =================== CARDS =================== */
+.card {
+  background: white;
+  border-radius: 16px;
+  padding: 1.5rem;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+  border: 1px solid var(--borda);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.card:hover {
+  box-shadow: 0 8px 30px rgba(0,0,0,0.1);
+  transform: translateY(-2px);
+}
+
+.card-glass {
+  background: rgba(255,255,255,0.12);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 16px;
+  padding: 1.5rem;
+}
+
+/* =================== INPUTS =================== */
+.input {
+  width: 100%;
+  padding: 0.85rem 1rem;
+  border: 2px solid var(--borda);
+  border-radius: 10px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  color: var(--texto);
+  background: white;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  outline: none;
+}
+
+.input:focus {
+  border-color: var(--laranja);
+  box-shadow: 0 0 0 4px rgba(255, 107, 0, 0.1);
+}
+
+.input::placeholder {
+  color: var(--texto-muted);
+}
+
+.select {
+  width: 100%;
+  padding: 0.85rem 1rem;
+  border: 2px solid var(--borda);
+  border-radius: 10px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  color: var(--texto);
+  background: white;
+  cursor: pointer;
+  outline: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%236B7280' viewBox='0 0 16 16'%3E%3Cpath d='M7.247 11.14L2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 1rem center;
+  transition: border-color 0.2s ease;
+}
+
+.select:focus {
+  border-color: var(--laranja);
+  box-shadow: 0 0 0 4px rgba(255, 107, 0, 0.1);
+}
+
+.label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--texto);
+  margin-bottom: 0.4rem;
+}
+
+/* =================== BADGES / STATUS =================== */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 20px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.badge-pendente { background: #FEF3C7; color: #92400E; }
+.badge-aceito { background: #D1FAE5; color: #065F46; }
+.badge-em_andamento { background: #DBEAFE; color: #1E40AF; }
+.badge-concluido { background: #D1FAE5; color: #065F46; }
+.badge-cancelado { background: #FEE2E2; color: #991B1B; }
+.badge-urgente { background: #FF6B00; color: white; }
+.badge-verificado { background: #D1FAE5; color: #065F46; }
+
+/* =================== STAR RATING =================== */
+.stars {
+  display: flex;
+  gap: 2px;
+}
+
+.star { color: #FCD34D; font-size: 1rem; }
+.star-empty { color: #D1D5DB; font-size: 1rem; }
+
+/* =================== NAVBAR =================== */
+.navbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  padding: 1rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: background 0.3s ease, box-shadow 0.3s ease;
+}
+
+.navbar.scrolled {
+  background: rgba(13, 27, 64, 0.95);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 2px 20px rgba(0,0,0,0.3);
+}
+
+/* =================== LOADING =================== */
+.spinner {
+  width: 24px;
+  height: 24px;
+  border: 3px solid rgba(255,107,0,0.2);
+  border-top-color: var(--laranja);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* =================== ANIMATIONS =================== */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes pulse-orange {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 107, 0, 0.4); }
+  50% { box-shadow: 0 0 0 12px rgba(255, 107, 0, 0); }
+}
+
+.animate-fade-up {
+  animation: fadeInUp 0.5s ease forwards;
+}
+
+.animate-fade {
+  animation: fadeIn 0.4s ease forwards;
+}
+
+.pulse-orange {
+  animation: pulse-orange 2s infinite;
+}
+
+/* =================== RESPONSIVE UTILS =================== */
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+.section {
+  padding: 5rem 0;
+}
+
+/* =================== MOBILE BOTTOM NAV =================== */
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: white;
+  border-top: 1px solid var(--borda);
+  display: flex;
+  padding: 0.5rem 0;
+  z-index: 100;
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.08);
+}
+
+.bottom-nav-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 0.5rem;
+  color: var(--texto-muted);
+  font-size: 0.7rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.2s;
+  text-decoration: none;
+}
+
+.bottom-nav-item.active {
+  color: var(--laranja);
+}
+
+/* =================== TIPO ICONS =================== */
+.tipo-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+}
+
+/* =================== SCROLLBAR =================== */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #f1f1f1; }
+::-webkit-scrollbar-thumb { background: var(--laranja); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--laranja-dark); }
