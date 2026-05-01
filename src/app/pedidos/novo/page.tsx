@@ -4,7 +4,7 @@ import { Suspense, useState, useRef, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
-import { buscarEnderecos, calcularRota, formatarDuracao, type Sugestao, type ResultadoRota } from '@/lib/maps'
+import { buscarEnderecos, calcularRota, formatarDuracao, labelVia, type Sugestao, type ResultadoRota } from '@/lib/maps'
 import { ArrowLeft, MapPin, Loader2, Zap, Clock, Navigation } from 'lucide-react'
 
 const TIPOS = [
@@ -339,7 +339,7 @@ function NovoPedidoForm() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
                     <p style={{ fontSize: '0.72rem', color: 'var(--texto-muted)', marginBottom: '0.2rem' }}>
-                      {calculando ? '⏳ Calculando rota real...' : rota?.via === 'osrm' ? '🛣️ Rota real (OpenStreetMap)' : '📐 Estimativa de distância'}
+                      {calculando ? '⏳ Calculando rota real...' : rota ? labelVia(rota.via) : '📐 Estimativa de distância'}
                     </p>
                     <div style={{ display: 'flex', gap: '1.25rem' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
