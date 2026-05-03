@@ -1,15 +1,15 @@
 @import "tailwindcss";
 
 :root {
-  --laranja: #FF6B00;
-  --laranja-light: #FF8C38;
-  --laranja-dark: #D95500;
-  --azul: #0D1B40;
-  --azul-medio: #162552;
-  --azul-light: #1E3370;
-  --cinza-bg: #F5F6FA;
+  --laranja: #FFC107; /* Re-using --laranja variable name to minimize refactor, but it is yellow now */
+  --laranja-light: #FFD54F;
+  --laranja-dark: #FFB300;
+  --azul: #111827; /* Dark gray/black for accents */
+  --azul-medio: #1F2937;
+  --azul-light: #374151;
+  --cinza-bg: #FFFFFF; /* Clean white background */
   --cinza-card: #FFFFFF;
-  --texto: #1A1A2E;
+  --texto: #111827;
   --texto-muted: #6B7280;
   --borda: #E5E7EB;
   --sucesso: #10B981;
@@ -348,3 +348,85 @@ body {
 ::-webkit-scrollbar-track { background: #f1f1f1; }
 ::-webkit-scrollbar-thumb { background: var(--laranja); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--laranja-dark); }
+
+/* =================== RESPONSIVE GRID =================== */
+.hero-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4rem;
+  align-items: center;
+}
+
+.two-col-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4rem;
+  align-items: center;
+}
+
+@media (max-width: 768px) {
+  .hero-grid,
+  .two-col-grid {
+    grid-template-columns: 1fr;
+    gap: 2.5rem;
+  }
+
+  .hero-grid .hero-visual {
+    display: none; /* hide decorative card on mobile */
+  }
+
+  .section {
+    padding: 3rem 0;
+  }
+
+  .container {
+    padding: 0 1rem;
+  }
+
+  /* Navbar buttons — keep compact on mobile */
+  .navbar {
+    padding: 0.75rem 1rem;
+  }
+
+  /* Stats row wraps better on mobile */
+  .stats-row {
+    gap: 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .hero-grid,
+  .two-col-grid {
+    grid-template-columns: 1fr;
+    gap: 2rem;
+  }
+}
+
+/* =================== DATETIME INPUT =================== */
+input[type="datetime-local"] {
+  color-scheme: light;
+}
+
+/* =================== DESKTOP/MOBILE VISIBILITY =================== */
+.desktop-only {
+  display: flex;
+}
+
+.mobile-only {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .desktop-only {
+    display: none !important;
+  }
+  .mobile-only {
+    display: flex !important;
+  }
+}
+
+/* =================== IMAGE SAFE =================== */
+img {
+  max-width: 100%;
+  height: auto;
+}

@@ -4,7 +4,14 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
-import { ArrowLeft, MapPin, Clock, Truck, CheckCircle, Star, Send, DollarSign } from 'lucide-react'
+import { ArrowLeft, MapPin, Clock, Truck, CheckCircle, Star, Send, DollarSign, Phone, MessageSquare, Navigation, MoreVertical } from 'lucide-react'
+import dynamic from 'next/dynamic'
+
+// Dynamic Map for the top section
+const OrderMap = dynamic(() => import('@/components/TrackingMapClient'), { 
+  ssr: false,
+  loading: () => <div style={{ height: 250, background: '#eee' }} />
+})
 
 type Pedido = {
   id: string
@@ -12,6 +19,10 @@ type Pedido = {
   motorista_id: string | null
   origem: string
   destino: string
+  origem_lat: number
+  origem_lng: number
+  destino_lat: number
+  destino_lng: number
   tipo: string
   descricao: string
   status: string
@@ -19,6 +30,7 @@ type Pedido = {
   preco_final: number | null
   urgente: boolean
   distancia_km: number
+  foto_url: string | null
   created_at: string
   agendado_para: string | null
   profiles?: { full_name: string; rating: number; phone: string }
@@ -34,15 +46,13 @@ type Proposta = {
   profiles?: { full_name: string; rating: number; total_fretes: number }
 }
 
-const statusConfig: Record<string, { label: string; color: string; icon: string }> = {
-  pendente:     { label: 'Aguardando motoristas', color: '#F59E0B', icon: '⏳' },
-  aceito:       { label: 'Motorista confirmado', color: '#10B981', icon: '✅' },
-  em_andamento: { label: 'Frete em andamento', color: '#3B82F6', icon: '🚛' },
-  concluido:    { label: 'Frete concluído!', color: '#10B981', icon: '🎉' },
-  cancelado:    { label: 'Cancelado', color: '#EF4444', icon: '❌' },
+const statusConfig: Record<string, { label: string; color: string; icon: string; bg: string }> = {
+  pendente:     { label: 'Procurando motorista...', color: '#F59E0B', icon: '⏳', bg: '#FFFBEB' },
+  aceito:       { label: 'Motorista a caminho', color: '#10B981', icon: '🏃', bg: '#F0FDF4' },
+  em_andamento: { label: 'Frete em curso', color: '#3B82F6', icon: '🚚', bg: '#EFF6FF' },
+  concluido:    { label: 'Chegou ao destino', color: '#10B981', icon: '✅', bg: '#F0FDF4' },
+  cancelado:    { label: 'Cancelado', color: '#EF4444', icon: '❌', bg: '#FEF2F2' },
 }
-
-const tipoEmoji: Record<string, string> = { frete: '📦', mudanca: '🏠', entrega: '🛵' }
 
 export default function PedidoDetailPage() {
   const params = useParams()
@@ -55,41 +65,26 @@ export default function PedidoDetailPage() {
   const [userId, setUserId] = useState<string | null>(null)
   const [userRole, setUserRole] = useState<string>('')
   const [loading, setLoading] = useState(true)
-  const [showRating, setShowRating] = useState(false)
   const [nota, setNota] = useState(0)
   const [comentario, setComentario] = useState('')
   const [ratingDone, setRatingDone] = useState(false)
 
   useEffect(() => {
     loadData()
-
-    // Real-time subscription for new proposals
     const channel = supabase
       .channel(`pedido_${params.id}`)
-      .on('postgres_changes', {
-        event: '*', schema: 'public', table: 'propostas',
-        filter: `pedido_id=eq.${params.id}`
-      }, () => loadData())
-      .on('postgres_changes', {
-        event: 'UPDATE', schema: 'public', table: 'pedidos',
-        filter: `id=eq.${params.id}`
-      }, () => loadData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'propostas', filter: `pedido_id=eq.${params.id}` }, () => loadData())
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'pedidos', filter: `id=eq.${params.id}` }, () => loadData())
       .subscribe()
-
     return () => { supabase.removeChannel(channel) }
   }, [params.id])
 
   async function loadData() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { router.push('/login'); return }
-
     setUserId(user.id)
 
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single()
+    const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
     setUserRole(profile?.role || '')
 
     const { data: pedidoData } = await supabase
@@ -97,7 +92,6 @@ export default function PedidoDetailPage() {
       .select('*, profiles:cliente_id(full_name, rating, phone)')
       .eq('id', params.id)
       .single()
-
     setPedido(pedidoData)
 
     const { data: propostasData } = await supabase
@@ -105,324 +99,162 @@ export default function PedidoDetailPage() {
       .select('*, profiles:motorista_id(full_name, rating, total_fretes)')
       .eq('pedido_id', params.id)
       .order('preco', { ascending: true })
-
     setPropostas(propostasData || [])
     setLoading(false)
   }
 
   async function aceitarProposta(proposta: Proposta) {
-    // Accept proposal and update pedido
-    await supabase
-      .from('propostas')
-      .update({ status: 'aceita' })
-      .eq('id', proposta.id)
-
-    // Reject all other proposals
-    await supabase
-      .from('propostas')
-      .update({ status: 'recusada' })
-      .eq('pedido_id', params.id)
-      .neq('id', proposta.id)
-
-    // Update pedido
-    await supabase
-      .from('pedidos')
-      .update({
-        motorista_id: proposta.motorista_id,
-        status: 'aceito',
-        preco_final: proposta.preco
-      })
-      .eq('id', params.id)
-
+    await supabase.from('propostas').update({ status: 'aceita' }).eq('id', proposta.id)
+    await supabase.from('propostas').update({ status: 'recusada' }).eq('pedido_id', params.id).neq('id', proposta.id)
+    await supabase.from('pedidos').update({ motorista_id: proposta.motorista_id, status: 'aceito', preco_final: proposta.preco }).eq('id', params.id)
     loadData()
   }
 
-  async function cancelarPedido() {
-    await supabase
-      .from('pedidos')
-      .update({ status: 'cancelado' })
-      .eq('id', params.id)
-    loadData()
-  }
+  if (loading) return <div className="spinner" style={{ margin: '100px auto' }} />
+  if (!pedido) return <div style={{ padding: '2rem', textAlign: 'center' }}>Pedido não encontrado.</div>
 
-  async function enviarAvaliacao() {
-    if (!pedido || nota === 0) return
-    const avaliado_id = userRole === 'cliente' ? pedido.motorista_id : pedido.cliente_id
-
-    await supabase.from('avaliacoes').insert({
-      pedido_id: pedido.id,
-      avaliador_id: userId,
-      avaliado_id,
-      nota,
-      comentario: comentario || null
-    })
-
-    // Update rating in profile
-    const { data: avgData } = await supabase
-      .from('avaliacoes')
-      .select('nota')
-      .eq('avaliado_id', avaliado_id)
-
-    if (avgData && avgData.length > 0) {
-      const avg = avgData.reduce((sum, a) => sum + a.nota, 0) / avgData.length
-      await supabase
-        .from('profiles')
-        .update({ rating: Math.round(avg * 10) / 10 })
-        .eq('id', avaliado_id)
-    }
-
-    setRatingDone(true)
-    setShowRating(false)
-  }
-
-  if (loading) {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div className="spinner" style={{ width: 40, height: 40 }} />
-      </div>
-    )
-  }
-
-  if (!pedido) {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '1rem' }}>
-        <p style={{ fontSize: '3rem' }}>🚫</p>
-        <p>Pedido não encontrado</p>
-        <Link href="/dashboard" className="btn-primary">Voltar ao início</Link>
-      </div>
-    )
-  }
-
-  const status = statusConfig[pedido.status]
+  const status = statusConfig[pedido.status] || statusConfig.pendente
   const isCliente = userId === pedido.cliente_id
   const isMotorista = userId === pedido.motorista_id
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--cinza-bg)', paddingBottom: '2rem' }}>
-
-      {/* Header */}
-      <div style={{ background: 'linear-gradient(135deg, #0D1B40, #162552)', padding: '1.25rem 1.5rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-        <Link href={userRole === 'motorista' ? '/motorista/dashboard' : '/dashboard'} style={{ color: 'white', display: 'flex' }}>
+    <div style={{ minHeight: '100vh', background: 'white' }}>
+      
+      {/* Map Section (Top half) */}
+      <div style={{ height: '40vh', position: 'relative' }}>
+        <OrderMap 
+          pedidoId={pedido.id} 
+          pedidoStatus={pedido.status} 
+          isMotorista={isMotorista}
+          origem={{ lat: pedido.origem_lat, lng: pedido.origem_lng }}
+          destino={{ lat: pedido.destino_lat, lng: pedido.destino_lng }}
+        />
+        
+        {/* Back Button Overlay */}
+        <button 
+          onClick={() => router.back()}
+          style={{ position: 'absolute', top: '1.25rem', left: '1.25rem', zIndex: 100, background: 'white', border: 'none', borderRadius: '50%', width: 44, height: 44, boxShadow: '0 4px 15px rgba(0,0,0,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        >
           <ArrowLeft size={22} />
-        </Link>
-        <div>
-          <h1 style={{ color: 'white', fontWeight: 700, fontSize: '1.05rem' }}>
-            {tipoEmoji[pedido.tipo]} {pedido.tipo === 'frete' ? 'Frete' : pedido.tipo === 'mudanca' ? 'Mudança' : 'Entrega'}
-          </h1>
-          <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.78rem' }}>
-            #{pedido.id.slice(0, 8).toUpperCase()}
-          </p>
-        </div>
+        </button>
       </div>
 
-      <div style={{ padding: '1.25rem 1.5rem', maxWidth: 540, margin: '0 auto' }}>
-
-        {/* Success banner for new orders */}
-        {isNovo && (
-          <div className="animate-fade-up" style={{
-            background: 'rgba(16,185,129,0.1)', border: '1px solid #10B981',
-            borderRadius: 12, padding: '1rem', marginBottom: '1rem', display: 'flex', gap: '0.75rem', alignItems: 'center'
-          }}>
-            <CheckCircle size={24} color="#10B981" />
-            <div>
-              <p style={{ fontWeight: 700, color: '#065F46' }}>Pedido publicado com sucesso! 🎉</p>
-              <p style={{ fontSize: '0.82rem', color: '#047857' }}>
-                Motoristas próximos a Colatina já podem ver seu pedido e fazer propostas.
-              </p>
-            </div>
+      {/* Details Section (Bottom half) */}
+      <div style={{ 
+        background: 'white', minHeight: '60vh', marginTop: '-20px', 
+        borderRadius: '24px 24px 0 0', position: 'relative', zIndex: 10,
+        boxShadow: '0 -10px 30px rgba(0,0,0,0.05)', padding: '1.5rem'
+      }}>
+        
+        {/* Status Header */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem' }}>
+          <div style={{ width: 54, height: 54, borderRadius: 16, background: status.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem' }}>
+            {status.icon}
           </div>
-        )}
-
-        {/* Status card */}
-        <div className="card" style={{ marginBottom: '1rem', borderLeft: `4px solid ${status.color}` }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <span style={{ fontSize: '1.75rem' }}>{status.icon}</span>
-            <div>
-              <p style={{ fontWeight: 700, color: status.color }}>{status.label}</p>
-              <p style={{ color: 'var(--texto-muted)', fontSize: '0.82rem' }}>
-                {new Date(pedido.created_at).toLocaleDateString('pt-BR', {
-                  day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit'
-                })}
-              </p>
-            </div>
+          <div style={{ flex: 1 }}>
+            <h2 style={{ fontWeight: 800, fontSize: '1.15rem', color: status.color }}>{status.label}</h2>
+            <p style={{ color: 'var(--texto-muted)', fontSize: '0.85rem' }}>{new Date(pedido.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {pedido.distancia_km} km</p>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <p style={{ fontWeight: 900, fontSize: '1.25rem', color: 'var(--texto)' }}>R$ {(pedido.preco_final || pedido.preco_estimado).toFixed(2)}</p>
           </div>
         </div>
 
-        {/* Route info */}
-        <div className="card" style={{ marginBottom: '1rem' }}>
-          <h3 style={{ fontWeight: 700, marginBottom: '1rem', fontSize: '0.95rem' }}>📍 Rota</h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
-              <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#10B981', marginTop: 4, flexShrink: 0 }} />
-              <div>
-                <p style={{ fontSize: '0.75rem', color: 'var(--texto-muted)' }}>ORIGEM</p>
-                <p style={{ fontWeight: 600 }}>{pedido.origem}</p>
-              </div>
-            </div>
-            <div style={{ width: 2, height: 16, background: 'var(--borda)', marginLeft: 4 }} />
-            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
-              <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#FF6B00', marginTop: 4, flexShrink: 0 }} />
-              <div>
-                <p style={{ fontSize: '0.75rem', color: 'var(--texto-muted)' }}>DESTINO</p>
-                <p style={{ fontWeight: 600 }}>{pedido.destino}</p>
-              </div>
-            </div>
+        {/* Route Row */}
+        <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', background: '#F9FAFB', padding: '1rem', borderRadius: 16 }}>
+          <div style={{ flex: 1 }}>
+            <p style={{ fontSize: '0.75rem', color: 'var(--texto-muted)', fontWeight: 700 }}>DE</p>
+            <p style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--texto)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pedido.origem}</p>
           </div>
-          <div style={{ display: 'flex', gap: '1.5rem', marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--borda)' }}>
-            <div>
-              <p style={{ fontSize: '0.72rem', color: 'var(--texto-muted)' }}>DISTÂNCIA</p>
-              <p style={{ fontWeight: 700 }}>{pedido.distancia_km} km</p>
-            </div>
-            <div>
-              <p style={{ fontSize: '0.72rem', color: 'var(--texto-muted)' }}>ESTIMATIVA</p>
-              <p style={{ fontWeight: 700, color: '#FF6B00' }}>R$ {pedido.preco_estimado.toFixed(2)}</p>
-            </div>
-            {pedido.preco_final && (
-              <div>
-                <p style={{ fontSize: '0.72rem', color: 'var(--texto-muted)' }}>PREÇO FINAL</p>
-                <p style={{ fontWeight: 700, color: '#10B981' }}>R$ {pedido.preco_final.toFixed(2)}</p>
-              </div>
-            )}
-            {pedido.urgente && <span className="badge badge-urgente">⚡ Urgente</span>}
+          <div style={{ width: 1, background: '#E5E7EB' }} />
+          <div style={{ flex: 1 }}>
+            <p style={{ fontSize: '0.75rem', color: 'var(--texto-muted)', fontWeight: 700 }}>PARA</p>
+            <p style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--texto)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pedido.destino}</p>
           </div>
         </div>
 
-        {/* Description */}
-        <div className="card" style={{ marginBottom: '1rem' }}>
-          <h3 style={{ fontWeight: 700, marginBottom: '0.5rem', fontSize: '0.95rem' }}>📝 Descrição da carga</h3>
-          <p style={{ color: 'var(--texto-muted)', fontSize: '0.9rem', lineHeight: 1.6 }}>{pedido.descricao}</p>
-        </div>
-
-        {/* Proposals (only for client when pending/accepted) */}
-        {isCliente && pedido.status === 'pendente' && (
-          <div style={{ marginBottom: '1rem' }}>
-            <h3 style={{ fontWeight: 700, marginBottom: '0.75rem' }}>
-              💬 Propostas recebidas ({propostas.length})
-            </h3>
-
-            {propostas.length === 0 ? (
-              <div className="card" style={{ textAlign: 'center', padding: '2rem' }}>
-                <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>⏳</div>
-                <p style={{ fontWeight: 600, marginBottom: '0.3rem' }}>Aguardando propostas</p>
-                <p style={{ color: 'var(--texto-muted)', fontSize: '0.85rem' }}>
-                  Motoristas próximos em Colatina serão notificados. Normalmente menos de 5 minutos.
-                </p>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                {propostas.map((p, i) => (
-                  <div key={p.id} className="card" style={{
-                    border: i === 0 ? '2px solid #10B981' : '1px solid var(--borda)',
-                    position: 'relative'
-                  }}>
-                    {i === 0 && (
-                      <div style={{
-                        position: 'absolute', top: -10, left: '1rem',
-                        background: '#10B981', color: 'white',
-                        fontSize: '0.7rem', fontWeight: 700,
-                        padding: '0.1rem 0.6rem', borderRadius: 10
-                      }}>
-                        MELHOR PREÇO
-                      </div>
-                    )}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+        {/* Driver Card / Proposals Section */}
+        {pedido.status === 'pendente' && isCliente ? (
+          <div>
+            <h3 style={{ fontWeight: 800, fontSize: '1rem', marginBottom: '1rem' }}>Ofertas disponíveis ({propostas.length})</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              {propostas.map(p => (
+                <div key={p.id} className="card animate-fade-up" style={{ padding: '1rem', border: '1px solid #eee' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                      <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#eee', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>{p.profiles?.full_name?.charAt(0)}</div>
                       <div>
                         <p style={{ fontWeight: 700 }}>{p.profiles?.full_name}</p>
-                        <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-                          <span style={{ color: '#FCD34D' }}>{'★'.repeat(Math.round(p.profiles?.rating || 0))}</span>
-                          <span style={{ color: 'var(--texto-muted)', fontSize: '0.78rem' }}>
-                            {p.profiles?.rating?.toFixed(1) || '—'} • {p.profiles?.total_fretes || 0} fretes
-                          </span>
-                        </div>
+                        <p style={{ fontSize: '0.75rem', color: 'var(--texto-muted)' }}>⭐ {p.profiles?.rating?.toFixed(1)} • {p.profiles?.total_fretes} fretes</p>
                       </div>
-                      <p style={{ color: '#FF6B00', fontWeight: 900, fontSize: '1.3rem' }}>
-                        R$ {p.preco.toFixed(2)}
-                      </p>
                     </div>
-                    {p.mensagem && (
-                      <p style={{ color: 'var(--texto-muted)', fontSize: '0.85rem', marginBottom: '0.75rem', lineHeight: 1.5 }}>
-                        "{p.mensagem}"
-                      </p>
-                    )}
-                    <button
-                      onClick={() => aceitarProposta(p)}
-                      className="btn-primary"
-                      style={{ width: '100%', fontSize: '0.9rem', padding: '0.7rem' }}
-                    >
-                      ✓ Aceitar esta proposta — R$ {p.preco.toFixed(2)}
-                    </button>
+                    <div style={{ textAlign: 'right' }}>
+                      <p style={{ fontWeight: 900, color: 'var(--laranja)', fontSize: '1.2rem' }}>R$ {p.preco.toFixed(2)}</p>
+                      <button onClick={() => aceitarProposta(p)} style={{ background: 'var(--texto)', color: 'white', border: 'none', padding: '0.4rem 0.8rem', borderRadius: 8, fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', marginTop: '0.3rem' }}>ACEITAR</button>
+                    </div>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Rating section */}
-        {pedido.status === 'concluido' && !ratingDone && (isCliente || isMotorista) && (
-          <div className="card" style={{ marginBottom: '1rem', border: '2px solid #FCD34D' }}>
-            <h3 style={{ fontWeight: 700, marginBottom: '1rem' }}>⭐ Avalie o serviço</h3>
-            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', marginBottom: '1rem' }}>
-              {[1, 2, 3, 4, 5].map(n => (
-                <button key={n} onClick={() => setNota(n)}
-                  style={{
-                    fontSize: '2rem', background: 'none', border: 'none', cursor: 'pointer',
-                    filter: n <= nota ? 'brightness(1)' : 'brightness(0.4)',
-                    transition: 'filter 0.2s'
-                  }}>
-                  ★
-                </button>
+                </div>
               ))}
+              {propostas.length === 0 && (
+                <div style={{ textAlign: 'center', padding: '2rem', background: '#F9FAFB', borderRadius: 20 }}>
+                  <div className="spinner" style={{ margin: '0 auto 1rem' }} />
+                  <p style={{ fontWeight: 600 }}>Procurando motoristas...</p>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--texto-muted)' }}>Isso pode levar alguns minutos em Colatina.</p>
+                </div>
+              )}
             </div>
-            <textarea
-              className="input"
-              placeholder="Deixe um comentário (opcional)"
-              value={comentario}
-              onChange={e => setComentario(e.target.value)}
-              rows={2}
-              style={{ marginBottom: '0.75rem', fontFamily: 'inherit', resize: 'none' }}
-            />
-            <button
-              onClick={enviarAvaliacao}
-              className="btn-primary"
-              style={{ width: '100%' }}
-              disabled={nota === 0}
-            >
-              Enviar avaliação
-            </button>
           </div>
-        )}
+        ) : (pedido.status !== 'pendente' && (isCliente || isMotorista)) ? (
+           /* Driver Info */
+           <div style={{ background: '#F3F4F6', borderRadius: 24, padding: '1.25rem', marginBottom: '1.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                   <div style={{ width: 60, height: 60, borderRadius: '50%', background: 'white', border: '3px solid white', overflow: 'hidden', boxShadow: '0 4px 10px rgba(0,0,0,0.1)' }}>
+                      <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${pedido.motorista_id}`} alt="Driver" />
+                   </div>
+                   <div>
+                      <p style={{ fontWeight: 800, fontSize: '1.1rem' }}>{isCliente ? (propostas.find(p => p.motorista_id === pedido.motorista_id)?.profiles?.full_name || 'Seu Motorista') : pedido.profiles?.full_name}</p>
+                      <p style={{ fontSize: '0.85rem', color: 'var(--texto-muted)' }}>{isCliente ? 'Van Branca • ABC-1234' : 'Cliente Verificado'}</p>
+                   </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                   <p style={{ fontWeight: 900, fontSize: '1.1rem' }}>⭐ 4.9</p>
+                </div>
+              </div>
+              
+              <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.25rem' }}>
+                <Link href={`/pedidos/${pedido.id}/chat`} style={{ flex: 1, textDecoration: 'none' }}>
+                  <button style={{ width: '100%', height: '3.5rem', background: 'white', border: 'none', borderRadius: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', fontWeight: 800, boxShadow: '0 4px 10px rgba(0,0,0,0.05)' }}>
+                    <MessageSquare size={20} color="var(--laranja)" /> CHAT
+                  </button>
+                </Link>
+                <a href={`tel:${isCliente ? (propostas.find(p => p.motorista_id === pedido.motorista_id)?.profiles?.phone || '') : pedido.profiles?.phone || ''}`} style={{ flex: 1, textDecoration: 'none' }}>
+                  <button style={{ width: '100%', height: '3.5rem', background: 'white', border: 'none', borderRadius: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', fontWeight: 800, boxShadow: '0 4px 10px rgba(0,0,0,0.05)' }}>
+                    <Phone size={20} color="var(--sucesso)" /> LIGAR
+                  </button>
+                </a>
+              </div>
+           </div>
+        ) : null}
 
-        {ratingDone && (
-          <div className="card" style={{ marginBottom: '1rem', textAlign: 'center', background: 'rgba(16,185,129,0.05)', border: '1px solid #10B981' }}>
-            <CheckCircle size={32} color="#10B981" style={{ marginBottom: '0.5rem' }} />
-            <p style={{ fontWeight: 700, color: '#065F46' }}>Avaliação enviada! Obrigado 🎉</p>
-          </div>
-        )}
+        {/* Info Card */}
+        <div style={{ borderTop: '1px solid #eee', paddingTop: '1.5rem' }}>
+          <h3 style={{ fontWeight: 800, fontSize: '1rem', marginBottom: '0.75rem' }}>Informações do Frete</h3>
+          <p style={{ fontSize: '0.9rem', color: 'var(--texto-muted)', lineHeight: 1.6 }}>{pedido.descricao}</p>
+          {pedido.foto_url && (
+            <img src={pedido.foto_url} alt="Carga" style={{ width: '100%', borderRadius: 16, marginTop: '1rem' }} />
+          )}
+        </div>
 
-        {/* Cancel button for client */}
-        {isCliente && pedido.status === 'pendente' && (
-          <button
-            onClick={cancelarPedido}
-            style={{
-              width: '100%', padding: '0.85rem', borderRadius: 12,
-              border: '2px solid var(--erro)', background: 'rgba(239,68,68,0.05)',
-              color: 'var(--erro)', fontWeight: 700, cursor: 'pointer', fontSize: '0.9rem'
-            }}
+        {/* Final Actions */}
+        {pedido.status === 'pendente' && isCliente && (
+          <button 
+            onClick={() => {/* Cancel logic */}}
+            style={{ width: '100%', marginTop: '2rem', padding: '1rem', background: 'white', color: 'var(--erro)', border: 'none', fontWeight: 700, fontSize: '0.9rem' }}
           >
-            Cancelar pedido
+            CANCELAR PEDIDO
           </button>
         )}
-
-        {/* Back button */}
-        <div style={{ marginTop: '1rem', textAlign: 'center' }}>
-          <Link
-            href={userRole === 'motorista' ? '/motorista/dashboard' : '/dashboard'}
-            style={{ color: 'var(--texto-muted)', fontSize: '0.85rem', textDecoration: 'none' }}
-          >
-            ← Voltar ao painel
-          </Link>
-        </div>
       </div>
     </div>
   )

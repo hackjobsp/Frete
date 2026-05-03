@@ -13,6 +13,9 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   cidade TEXT DEFAULT 'Colatina',
   rating DECIMAL(3,2) DEFAULT 0,
   total_fretes INTEGER DEFAULT 0,
+  cpf TEXT,
+  data_nascimento DATE,
+  onboarding_completo BOOLEAN DEFAULT false,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -24,6 +27,7 @@ CREATE TABLE IF NOT EXISTS public.veiculos (
   placa TEXT NOT NULL,
   modelo TEXT NOT NULL,
   capacidade_kg INTEGER NOT NULL DEFAULT 500,
+  cnh TEXT,
   verificado BOOLEAN DEFAULT false,
   cnh_url TEXT,
   created_at TIMESTAMPTZ DEFAULT now()

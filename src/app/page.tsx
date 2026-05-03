@@ -75,7 +75,7 @@ export default function LandingPage() {
         }} />
 
         <div className="container" style={{ paddingTop: '6rem', paddingBottom: '4rem' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4rem', alignItems: 'center' }}>
+          <div className="hero-grid">
 
             {/* Left */}
             <div className="animate-fade-up">
@@ -139,7 +139,7 @@ export default function LandingPage() {
             </div>
 
             {/* Right — App mockup card */}
-            <div style={{ display: 'flex', justifyContent: 'center' }}>
+            <div className="hero-visual" style={{ display: 'flex', justifyContent: 'center' }}>
               <div className="card-glass" style={{ width: '100%', maxWidth: 340, padding: '1.5rem' }}>
                 <div style={{ marginBottom: '1rem' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
@@ -302,7 +302,7 @@ export default function LandingPage() {
       {/* ===== PARA MOTORISTAS ===== */}
       <section id="para-motoristas" className="gradient-hero section">
         <div className="container">
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4rem', alignItems: 'center' }}>
+          <div className="two-col-grid">
 
             <div>
               <span style={{
