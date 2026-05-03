@@ -45,6 +45,7 @@ export default function MotoristaDashboard() {
   const userIdRef = useRef<string | null>(null)
   const channelsRef = useRef<{ ativos?: RealtimeChannel; pedidos?: RealtimeChannel }>({})
   const watchIdRef = useRef<number | null>(null)
+  const wakeLockRef = useRef<any>(null)
 
   useEffect(() => {
     loadData()
@@ -92,7 +93,7 @@ export default function MotoristaDashboard() {
     watchIdRef.current = navigator.geolocation.watchPosition(
       (pos) => {
         setLocalizacaoPermitida(true)
-        transmitirLocalizacao(pos.coords.latitude, pos.coords.longitude)
+        transmitirLocalizacao(pos.coords.latitude, pos.coords.longitude, pos.coords.heading, pos.coords.speed)
       },
       (err) => {
         console.error('Erro de GPS:', err)
@@ -113,6 +114,16 @@ export default function MotoristaDashboard() {
       }
     })
     channelsRef.current.ativos = ativosChannel
+
+    // 2.5 Request Wake Lock to keep screen awake
+    if ('wakeLock' in navigator) {
+      try {
+        wakeLockRef.current = await (navigator as any).wakeLock.request('screen')
+        console.log('Screen Wake Lock active')
+      } catch (err) {
+        console.error('Wake Lock error:', err)
+      }
+    }
 
     // 3. Carregar pedidos pendentes e ouvir novos
     const { data: available } = await supabase
@@ -150,6 +161,11 @@ export default function MotoristaDashboard() {
       navigator.geolocation.clearWatch(watchIdRef.current)
       watchIdRef.current = null
     }
+    if (wakeLockRef.current) {
+      wakeLockRef.current.release().then(() => {
+        wakeLockRef.current = null
+      }).catch(console.error)
+    }
     if (channelsRef.current.ativos) {
       channelsRef.current.ativos.untrack()
       supabase.removeChannel(channelsRef.current.ativos)
@@ -161,12 +177,14 @@ export default function MotoristaDashboard() {
     setPedidosDisponiveis([])
   }
 
-  async function transmitirLocalizacao(lat: number, lng: number) {
+  async function transmitirLocalizacao(lat: number, lng: number, heading: number | null = null, speed: number | null = null) {
     if (!channelsRef.current.ativos) return
     // Usa a funcionalidade Presence do Supabase
     await channelsRef.current.ativos.track({
       lat,
       lng,
+      heading,
+      speed,
       timestamp: Date.now()
     })
   }
