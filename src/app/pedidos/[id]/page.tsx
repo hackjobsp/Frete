@@ -43,7 +43,7 @@ type Proposta = {
   mensagem: string
   status: string
   created_at: string
-  profiles?: { full_name: string; rating: number; total_fretes: number }
+  profiles?: { full_name: string; rating: number; total_fretes: number; phone?: string }
 }
 
 const statusConfig: Record<string, { label: string; color: string; icon: string; bg: string }> = {
@@ -96,7 +96,7 @@ export default function PedidoDetailPage() {
 
     const { data: propostasData } = await supabase
       .from('propostas')
-      .select('*, profiles:motorista_id(full_name, rating, total_fretes)')
+      .select('*, profiles:motorista_id(full_name, rating, total_fretes, phone)')
       .eq('pedido_id', params.id)
       .order('preco', { ascending: true })
     setPropostas(propostasData || [])
