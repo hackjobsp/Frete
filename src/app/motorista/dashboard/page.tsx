@@ -27,6 +27,7 @@ type Profile = {
   rating: number
   total_fretes: number
   onboarding_completo: boolean
+  veiculos?: { tipo: string }[]
 }
 
 const tipoLabel: Record<string, string> = { frete: 'Frete', mudanca: 'Mudança', entrega: 'Entrega' }
@@ -69,7 +70,7 @@ export default function MotoristaDashboard() {
 
     const { data: profileData } = await supabase
       .from('profiles')
-      .select('full_name, rating, total_fretes, onboarding_completo')
+      .select('full_name, rating, total_fretes, onboarding_completo, veiculos(tipo)')
       .eq('id', user.id)
       .single()
 
@@ -93,7 +94,7 @@ export default function MotoristaDashboard() {
     watchIdRef.current = navigator.geolocation.watchPosition(
       (pos) => {
         setLocalizacaoPermitida(true)
-        transmitirLocalizacao(pos.coords.latitude, pos.coords.longitude, pos.coords.heading, pos.coords.speed)
+        transmitirLocalizacao(pos.coords.latitude, pos.coords.longitude, pos.coords.heading, pos.coords.speed, profile)
       },
       (err) => {
         console.error('Erro de GPS:', err)
@@ -177,7 +178,7 @@ export default function MotoristaDashboard() {
     setPedidosDisponiveis([])
   }
 
-  async function transmitirLocalizacao(lat: number, lng: number, heading: number | null = null, speed: number | null = null) {
+  async function transmitirLocalizacao(lat: number, lng: number, heading: number | null = null, speed: number | null = null, currentProfile: Profile | null = null) {
     if (!channelsRef.current.ativos) return
     // Usa a funcionalidade Presence do Supabase
     await channelsRef.current.ativos.track({
@@ -185,6 +186,10 @@ export default function MotoristaDashboard() {
       lng,
       heading,
       speed,
+      nome: currentProfile?.full_name || 'Motorista',
+      rating: currentProfile?.rating || 0,
+      veiculo_tipo: currentProfile?.veiculos?.[0]?.tipo || 'carro',
+      status: aceitando ? 'em_entrega' : 'disponivel',
       timestamp: Date.now()
     })
   }
